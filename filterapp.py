@@ -88,11 +88,32 @@ def fill_missing_values(df1, df2, match_col1, match_col2, data_col2, threshold=8
     
     return filled_df
 
-def filter_data(filter_df, data_df, filter_column):
-    """Filter data based on values in a column"""
+def filter_data(filter_df, data_df, filter_column, keep_matching=True):
+    """Filter data based on values in a column, either keeping or removing matches"""
     filter_values = filter_df[filter_column].unique()
-    filtered_df = data_df[data_df[filter_column].isin(filter_values)]
+    if keep_matching:
+        filtered_df = data_df[data_df[filter_column].isin(filter_values)]
+    else:
+        filtered_df = data_df[~data_df[filter_column].isin(filter_values)]
     return filtered_df
+
+def split_column_values(df, column, delimiter):
+    """Split values in a column based on delimiter into separate columns"""
+    # Convert column to string and split
+    split_data = df[column].astype(str).str.split(delimiter, expand=True)
+    
+    # Create new column names
+    max_splits = split_data.shape[1]
+    new_columns = [f"{column}_part_{i+1}" for i in range(max_splits)]
+    
+    # Create new dataframe with split columns
+    result_df = pd.DataFrame(split_data.values, columns=new_columns)
+    
+    # Include original columns (except the split column) and append split columns
+    other_columns = [col for col in df.columns if col != column]
+    final_df = pd.concat([df[other_columns], result_df], axis=1)
+    
+    return final_df
 
 def to_excel(df):
     """Convert DataFrame to Excel bytes"""
@@ -103,12 +124,12 @@ def to_excel(df):
 
 def main():
     st.title("📊 Data Processing Tool")
-    st.markdown("Select between two functions: fuzzy matching or filtering")
+    st.markdown("Select between three functions: fuzzy matching, filtering, or column splitting")
     
     # Function selector
     function_choice = st.radio(
         "Select function:",
-        ["🔍 Fuzzy Match Values", "🔎 Filter Data"],
+        ["🔍 Fuzzy Match Values", "🔎 Filter Data", "✂️ Split Column Values"],
         horizontal=True
     )
     
@@ -242,7 +263,7 @@ def main():
             except Exception as e:
                 st.error(f"Error processing files: {str(e)}")
     
-    else:  # Filter Data function
+    elif function_choice == "🔎 Filter Data":
         st.header("Filter Data")
         st.write("Filter rows from a second file based on values from a column in a first file.")
         
@@ -267,6 +288,15 @@ def main():
                     filter_df.columns,
                     key="filter_column"
                 )
+                
+                # Filter mode selection
+                filter_mode = st.radio(
+                    "Filter mode:",
+                    ["Keep matching rows", "Remove matching rows"],
+                    index=0,
+                    key="filter_mode"
+                )
+                keep_matching = filter_mode == "Keep matching rows"
                 
                 # Get unique values from the selected column
                 filter_values = filter_df[filter_column].unique()
@@ -296,7 +326,7 @@ def main():
                         else:
                             # Filter the data
                             with st.spinner("Filtering data..."):
-                                filtered_df = filter_data(filter_df, data_df, filter_column)
+                                filtered_df = filter_data(filter_df, data_df, filter_column, keep_matching)
                             
                             st.subheader("Filtering Results")
                             st.write(f"Original data rows: {len(data_df)}")
@@ -341,6 +371,68 @@ def main():
                         
             except Exception as e:
                 st.error(f"Error loading filter file: {str(e)}")
+    
+    else:  # Split Column Values
+        st.header("Split Column Values")
+        st.markdown("Split text in a selected column into multiple columns based on a delimiter")
+        
+        # Upload file
+        st.subheader("Step 1: Upload the file to process")
+        split_file = st.file_uploader(
+            "Upload your file",
+            type=['csv', 'xlsx', 'xls'],
+            key="split_file"
+        )
+        
+        if split_file is not None:
+            try:
+                df = read_file(split_file)
+                if df is None:
+                    return
+                st.success("File loaded successfully!")
+                
+                # Select column to split
+                split_column = st.selectbox(
+                    "Select the column to split",
+                    df.columns,
+                    key="split_column"
+                )
+                
+                # Input delimiter
+                delimiter = st.text_input(
+                    "Enter the delimiter (e.g., -, ,, ;)",
+                    value="-",
+                    key="delimiter"
+                )
+                
+                if delimiter:
+                    try:
+                        # Process the split
+                        with st.spinner("Splitting column values..."):
+                            result_df = split_column_values(df, split_column, delimiter)
+                        
+                        st.subheader("Split Results")
+                        st.write(f"Original columns: {len(df.columns)}")
+                        st.write(f"New columns: {len(result_df.columns)}")
+                        
+                        # Show results
+                        st.dataframe(result_df)
+                        
+                        # Download results as CSV
+                        csv = result_df.to_csv(index=False).encode('utf-8')
+                        st.download_button(
+                            "Download Split Results",
+                            csv,
+                            "split_results.csv",
+                            "text/csv",
+                            key='download-split-csv'
+                        )
+                        
+                    except Exception as e:
+                        st.error(f"Error processing split: {str(e)}")
+                        
+            except Exception as e:
+                st.error(f"Error loading file: {str(e)}")
 
 if __name__ == "__main__":
     main()
